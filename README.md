@@ -47,28 +47,28 @@ Das Werkzeug arbeitet direkt auf der JSON-Struktur von WebMaps und verwendet die
 
 **Das Werkzeug unterstützt den Austausch auf folgende Zieltypen:**
 
-1. Feature Layer
-2. Map Image Layer
-3. WMS
-4. Vector Tile Layer
-5. Tile Layer
+* Feature Layer
+* Map Image Layer
+* WMS
+* Vector Tile Layer
+* Tile Layer
 
 Zusätzlich werden auch GroupLayer-Strukturen und verschachtelte Layer berücksichtigt.
 
 ### Eingabeparameter
 
-Alte Layer-IDs:
+* Alte Layer-IDs:
 
-Liste der alten Layer-Item-IDs, die in WebMaps gesucht und ersetzt werden sollen.
+   Liste der alten Layer-Item-IDs, die in WebMaps gesucht und ersetzt werden sollen.
 
-Neue Layer-ID:
+* Neue Layer-ID:
 
-Item-ID des neuen Ziel-Layers, der anstelle der alten Layer verwendet werden soll.
+   Item-ID des neuen Ziel-Layers, der anstelle der alten Layer verwendet werden soll.
 
-Dry Run:
+* Dry Run:
 
-Steuert, ob Änderungen nur geprüft oder tatsächlich gespeichert werden.
+   Steuert, ob Änderungen nur geprüft oder tatsächlich gespeichert werden.
 
-True: keine Speicherung, nur Analyse und Ausgabe der geplanten Änderungen
+   True: keine Speicherung, nur Analyse und Ausgabe der geplanten Änderungen
 
-False: geänderte WebMaps werden gespeichert
+   False: geänderte WebMaps werden gespeichert
