@@ -18,9 +18,9 @@ Dazu wird die JSON-Struktur der WebMap analysiert und der betroffene Layer abhä
 
 Beim Ersetzen von Layern werden Eigenschaften nicht pauschal übernommen, sondern abgestuft behandelt:
 
-SAFE_KEYS: typübergreifend unkritische Eigenschaften, die nach Möglichkeit erhalten bleiben
-SAME_TYPE_KEYS: Eigenschaften, die nur bei gleichem Layer-Typ übernommen werden
-TARGET_TYPE_KEYS: Eigenschaften, die gezielt für den jeweiligen Zieltyp übernommen werden
+* SAFE_KEYS: typübergreifend unkritische Eigenschaften, die nach Möglichkeit erhalten bleiben
+* SAME_TYPE_KEYS: Eigenschaften, die nur bei gleichem Layer-Typ übernommen werden
+* TARGET_TYPE_KEYS: Eigenschaften, die gezielt für den jeweiligen Zieltyp übernommen werden
 
 Problematische Inhalte werden bewusst nicht übernommen, um die Stabilität der WebMap nicht zu gefährden.
 
