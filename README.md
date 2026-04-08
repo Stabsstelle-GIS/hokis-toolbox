@@ -47,11 +47,11 @@ Das Werkzeug arbeitet direkt auf der JSON-Struktur von WebMaps und verwendet die
 
 ### Das Werkzeug unterstützt den Austausch auf folgende Zieltypen:
 
-Feature Layer
-Map Image Layer
-WMS
-Vector Tile Layer
-Tile Layer
+1. Feature Layer
+2. Map Image Layer
+3. WMS
+4. Vector Tile Layer
+5. Tile Layer
 
 Zusätzlich werden auch GroupLayer-Strukturen und verschachtelte Layer berücksichtigt.
 
