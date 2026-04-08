@@ -57,15 +57,15 @@ Zusätzlich werden auch GroupLayer-Strukturen und verschachtelte Layer berücksi
 
 ### Eingabeparameter
 
-* Alte Layer-IDs:
+* Alte Layer-IDs
 
    Liste der alten Layer-Item-IDs, die in WebMaps gesucht und ersetzt werden sollen.
 
-* Neue Layer-ID:
+* Neue Layer-ID
 
    Item-ID des neuen Ziel-Layers, der anstelle der alten Layer verwendet werden soll.
 
-* Dry Run:
+* Dry Run
 
    Steuert, ob Änderungen nur geprüft oder tatsächlich gespeichert werden.
 
