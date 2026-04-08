@@ -1,16 +1,16 @@
 # hokis-toolbox
 Misc. tools for ArcGIS+Terratwin (HOKIS)
 
-# Installation
+## Installation
 
 1. Daten aus Github-Repository herunterladen und lokal speichern
 2. Im ArcGIS Pro Katalog Rechtsklick auf 'Toolboxen'->'Toolbox hinzufügen'
 3. zu heruntergeladenen Daten navigieren und die Datei 'toolbox_webmap.pyt' auswählen; dieses erscheint dann im ArcGIS Pro Katalog unter 'Toolboxen'
 4. 'toolbox_webmap.pyt' aufklappen und das Werkzeug mit Doppelklick öffnen
 
-# Tools
+## Tools
 
-Werkzeug zum Austausch veralteter Layer-Referenzen in ArcGIS Enterprise WebMaps
+### Werkzeug zum Austausch veralteter Layer-Referenzen in ArcGIS Enterprise WebMaps
 
 Dieses Werkzeug ersetzt veraltete Layer-Referenzen in bestehenden WebMaps automatisiert durch einen neuen Ziel-Layer.
 
@@ -24,17 +24,15 @@ TARGET_TYPE_KEYS: Eigenschaften, die gezielt für den jeweiligen Zieltyp überno
 
 Problematische Inhalte werden bewusst nicht übernommen, um die Stabilität der WebMap nicht zu gefährden.
 
-Hintergrund
+### Hintergrund
 
 Nach Neuveröffentlichungen oder technischen Änderungen verweisen WebMaps oft noch auf alte Layer-Referenzen. Die manuelle Korrektur ist besonders bei GroupLayern, Unterlayern und verschachtelten Strukturen aufwendig und fehleranfällig.
 
 Dieses Werkzeug automatisiert den Austausch solcher Referenzen und arbeitet dabei bewusst vorsichtig, um fehlerhafte Änderungen an WebMaps zu vermeiden.
 
-Ablauf
+### Ablauf
 
 Das Werkzeug arbeitet direkt auf der JSON-Struktur von WebMaps und verwendet die aktive Portal-Anmeldung aus ArcGIS Pro.
-
-Ablauf:
 
 1. Aktives Portal und aktuelle Anmeldung aus ArcGIS Pro übernehmen
 2. Alle WebMaps des aktuell angemeldeten Portal-Benutzers suchen
@@ -47,7 +45,7 @@ Ablauf:
 9. Ergebnisse, Konflikte und Laufzeit-Hinweise protokollieren
 10. Unterstützte Layer-Typen
 
-Das Werkzeug unterstützt den Austausch auf folgende Zieltypen:
+### Das Werkzeug unterstützt den Austausch auf folgende Zieltypen:
 
 Feature Layer
 Map Image Layer
@@ -57,7 +55,7 @@ Tile Layer
 
 Zusätzlich werden auch GroupLayer-Strukturen und verschachtelte Layer berücksichtigt.
 
-Eingabeparameter
+### Eingabeparameter
 
 Alte Layer-IDs
 Liste der alten Layer-Item-IDs, die in WebMaps gesucht und ersetzt werden sollen.
