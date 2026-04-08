@@ -45,7 +45,7 @@ Das Werkzeug arbeitet direkt auf der JSON-Struktur von WebMaps und verwendet die
 9. Ergebnisse, Konflikte und Laufzeit-Hinweise protokollieren
 10. Unterstützte Layer-Typen
 
-### Das Werkzeug unterstützt den Austausch auf folgende Zieltypen:
+**Das Werkzeug unterstützt den Austausch auf folgende Zieltypen:**
 
 1. Feature Layer
 2. Map Image Layer
