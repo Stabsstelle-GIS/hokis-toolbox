@@ -8,99 +8,33 @@ from typing import Dict, List, Optional, Set, Tuple
 import arcpy
 import arcgis
 import requests
-from arcgis.gis import GIS
 from arcgis.features import FeatureLayerCollection
+from arcgis.gis import GIS
 
-
-# =========================================================
 # Feste Konfiguration
-# =========================================================
 UPDATE_TITLE_TO_NEW = True
 DEBUG_DUMP_FINAL_BLOCKS = True
-
-# Wenn wm.update(...) scheitert, optional REST-Fallback versuchen
 USE_REST_UPDATE_FALLBACK = True
 
-SAFE_KEYS = {
-    "id",
-    "visibility",
-    "opacity",
-    "minScale",
-    "maxScale",
-}
+SAFE_KEYS = {"id", "visibility", "opacity", "minScale", "maxScale"}
 
-SAME_TYPE_KEYS = {
-    "feature": {
-        "showLegend",
-        "disablePopup",
-    },
-    "mapimage": {
-        "showLegend",
-        "disablePopup",
-        "visibleLayers",
-    },
-    "wms": {
-        "featureInfoFormat",
-        "featureInfoUrl",
-        "mapUrl",
-        "spatialReferences",
-        "layers",
-        "visibleLayers",
-        "version",
-    },
-    "vectortile": {
-        "styleUrl",
-        "blendMode",
-        "isReference",
-    },
-    "tile": {
-        "showLegend",
-    },
-    "other": set(),
-}
-
-TARGET_TYPE_KEYS = {
-    "feature": {
-        "showLegend",
-        "disablePopup",
-    },
-    "mapimage": {
-        "showLegend",
-        "disablePopup",
-        "visibleLayers",
-    },
-    "wms": {
-        "visibleLayers",
-        "layers",
-        "mapUrl",
-        "featureInfoUrl",
-        "featureInfoFormat",
-        "spatialReferences",
-        "version",
-    },
-    "vectortile": {
-        "styleUrl",
-        "blendMode",
-        "isReference",
-    },
-    "tile": {
-        "showLegend",
-    },
+TYPE_KEYS = {
+    "feature": {"showLegend", "disablePopup"},
+    "mapimage": {"showLegend", "disablePopup", "visibleLayers"},
+    "wms": {"showLegend", "featureInfoFormat", "featureInfoUrl", "mapUrl", "spatialReferences", "layers", "visibleLayers", "version"},
+    "vectortile": {"styleUrl", "blendMode", "isReference"},
+    "tile": {"showLegend"},
     "other": set(),
 }
 
 NEVER_COPY_KEYS = {"featureCollection"}
 
-
-# =========================================================
 # Meldungsfunktionen
-# =========================================================
 def _msg(message_func, text: str):
     if message_func:
         message_func(text)
     else:
         print(text)
-
 
 def _warn(warning_func, text: str):
     if warning_func:
@@ -108,25 +42,16 @@ def _warn(warning_func, text: str):
     else:
         print(f"WARNING: {text}")
 
-
-# =========================================================
 # Laufzeit-Hinweise / Probleme sammeln
-# =========================================================
 def _add_runtime_issue(runtime_issues: List[str], message: str):
     if message not in runtime_issues:
         runtime_issues.append(message)
 
-
-# =========================================================
 # JSON-sicher klonen
-# =========================================================
 def _json_clone(obj):
     return json.loads(json.dumps(obj, ensure_ascii=False))
 
-
-# =========================================================
 # REST-Fallback fuer Item-Update
-# =========================================================
 def _update_webmap_via_rest(gis, wm_item, data: dict) -> bool:
     owner = getattr(wm_item, "owner", None)
     item_id = getattr(wm_item, "id", None)
@@ -139,51 +64,58 @@ def _update_webmap_via_rest(gis, wm_item, data: dict) -> bool:
         raise RuntimeError("REST-Update nicht moeglich: portal.resturl fehlt.")
 
     update_url = f"{resturl}content/users/{owner}/items/{item_id}/update"
-    payload = {
-        "f": "json",
-        "text": json.dumps(data, ensure_ascii=False),
-    }
-
+    payload = {"f": "json", "text": json.dumps(data, ensure_ascii=False)}
     res = gis._con.post(update_url, payload)
-    if not isinstance(res, dict):
-        return False
-
+    if not isinstance(res, dict): return False
     return bool(res.get("success"))
 
-
-# =========================================================
 # Kleine Hilfsfunktionen
-# =========================================================
 def _normalize_text(value) -> str:
     return str(value).strip().casefold() if value is not None else ""
-
 
 def _title_matches_exact(a, b) -> bool:
     return _normalize_text(a) == _normalize_text(b)
 
-
 def _strip_query(url: Optional[str]) -> Optional[str]:
-    if not isinstance(url, str):
-        return url
+    if not isinstance(url, str): return url
     return url.split("?", 1)[0]
 
+def _safe_get_item_data(item) -> dict:
+    try:
+        data = item.get_data()
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+def _safe_get_item_properties(item):
+    try:
+        return getattr(item, "properties", None)
+    except Exception:
+        return None
+
+def _first_nonempty_str(*values):
+    for val in values:
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return None
+
+def _first_nonempty_list(*values):
+    for val in values:
+        if isinstance(val, list) and val:
+            return val
+    return None
 
 def _collect_transferable_props(old_layer_obj: dict, old_type: str, new_type: str) -> dict:
     allowed = set(SAFE_KEYS)
-
     if old_type == new_type:
-        allowed |= SAME_TYPE_KEYS.get(old_type, set())
-
-    allowed |= TARGET_TYPE_KEYS.get(new_type, set())
+        allowed |= TYPE_KEYS.get(old_type, set())
+    allowed |= TYPE_KEYS.get(new_type, set())
     allowed -= NEVER_COPY_KEYS
-
     out = {}
     for k in allowed:
         if k in old_layer_obj:
             out[k] = _json_clone(old_layer_obj[k])
-
     return out
-
 
 def _extract_sublayer_suffix(layer_obj: dict) -> str:
     url = layer_obj.get("url")
@@ -193,32 +125,21 @@ def _extract_sublayer_suffix(layer_obj: dict) -> str:
             return f"/{m.group(1)}"
 
     lid = layer_obj.get("layerId")
-    if isinstance(lid, int):
-        return f"/{lid}"
-    if isinstance(lid, str) and lid.isdigit():
-        return f"/{lid}"
-
+    if isinstance(lid, int): return f"/{lid}"
+    if isinstance(lid, str) and lid.isdigit(): return f"/{lid}"
     return ""
 
-
 def _get_layer_id_as_int(layer_obj: dict):
-    if not isinstance(layer_obj, dict):
-        return None
+    if not isinstance(layer_obj, dict): return None
 
     lid = layer_obj.get("layerId")
-    if isinstance(lid, int):
-        return lid
-    if isinstance(lid, str) and lid.isdigit():
-        return int(lid)
+    if isinstance(lid, int): return lid
+    if isinstance(lid, str) and lid.isdigit(): return int(lid)
 
     lid = layer_obj.get("id")
-    if isinstance(lid, int):
-        return lid
-    if isinstance(lid, str) and lid.isdigit():
-        return int(lid)
-
+    if isinstance(lid, int): return lid
+    if isinstance(lid, str) and lid.isdigit(): return int(lid)
     return None
-
 
 def _copy_group_parent_safe_props(old_layer_obj: dict, old_type: str) -> dict:
     out = _collect_transferable_props(old_layer_obj, old_type, "other")
@@ -226,56 +147,47 @@ def _copy_group_parent_safe_props(old_layer_obj: dict, old_type: str) -> dict:
     out.pop("maxScale", None)
     return out
 
-
 def _safe_int(value):
     try:
         return int(value)
     except Exception:
         return None
 
-
 def _build_clean_base_props_for_service_target(old_layer_obj: dict, new_title: Optional[str], fallback_id: str) -> dict:
     out = {}
-
-    if old_layer_obj.get("id") is not None:
-        out["id"] = _json_clone(old_layer_obj["id"])
-    else:
-        out["id"] = fallback_id
-
+    out["id"] = _json_clone(old_layer_obj["id"]) if old_layer_obj.get("id") is not None else fallback_id
     out["title"] = new_title if new_title else old_layer_obj.get("title")
     out["visibility"] = _json_clone(old_layer_obj.get("visibility", True))
     out["opacity"] = _json_clone(old_layer_obj.get("opacity", 1))
-
-    if "minScale" in old_layer_obj:
-        out["minScale"] = _json_clone(old_layer_obj["minScale"])
-    if "maxScale" in old_layer_obj:
-        out["maxScale"] = _json_clone(old_layer_obj["maxScale"])
-
+    if "minScale" in old_layer_obj: out["minScale"] = _json_clone(old_layer_obj["minScale"])
+    if "maxScale" in old_layer_obj: out["maxScale"] = _json_clone(old_layer_obj["maxScale"])
     return out
 
+def _make_hit(path, matched_old_id, old_item_titles, old_type, new_type, result, **extra):
+    return {
+        "path": path,
+        "matched_old_id": matched_old_id,
+        "old_item_title_filter": old_item_titles.get(matched_old_id),
+        "old_type": old_type,
+        "new_type": new_type,
+        **extra,
+        **result,
+    }
 
-# =========================================================
 # WMS XML / Capabilities
-# =========================================================
 def _strip_xml_ns(tag: str) -> str:
     return tag.split("}", 1)[-1] if "}" in tag else tag
-
 
 def _build_wms_capabilities_url(url: str) -> str:
     base = url.strip()
     sep = "&" if "?" in base else "?"
-    return base + sep + urlencode({
-        "service": "WMS",
-        "request": "GetCapabilities",
-    })
-
+    return base + sep + urlencode({"service": "WMS", "request": "GetCapabilities"})
 
 def _find_xml_child(elem, local_name: str):
     for child in list(elem):
         if _strip_xml_ns(child.tag) == local_name:
             return child
     return None
-
 
 def _find_xml_child_text(elem, local_name: str) -> Optional[str]:
     child = _find_xml_child(elem, local_name)
@@ -285,38 +197,28 @@ def _find_xml_child_text(elem, local_name: str) -> Optional[str]:
             return text
     return None
 
-
 def _extract_online_resource_href(elem) -> Optional[str]:
-    if elem is None:
-        return None
-
+    if elem is None: return None
     for k, v in elem.attrib.items():
         if k.lower().endswith("href") and isinstance(v, str) and v.strip():
             return v.strip()
-
     return None
-
 
 def _extract_legend_url_from_layer(layer_elem) -> Optional[str]:
     for style_elem in list(layer_elem):
         if _strip_xml_ns(style_elem.tag) != "Style":
             continue
-
         legend_url_elem = _find_xml_child(style_elem, "LegendURL")
         if legend_url_elem is None:
             continue
-
         online_resource_elem = _find_xml_child(legend_url_elem, "OnlineResource")
         href = _extract_online_resource_href(online_resource_elem)
         if href:
             return href
-
     return None
-
 
 def _parse_wms_layers_from_capabilities_xml(xml_text: str) -> List[dict]:
     out = []
-
     try:
         root = ET.fromstring(xml_text)
     except Exception:
@@ -325,22 +227,12 @@ def _parse_wms_layers_from_capabilities_xml(xml_text: str) -> List[dict]:
     def _walk_layer(layer_elem):
         name = _find_xml_child_text(layer_elem, "Name")
         title = _find_xml_child_text(layer_elem, "Title")
-
         queryable_raw = layer_elem.attrib.get("queryable")
         queryable = str(queryable_raw).strip() in {"1", "true", "True"}
-
         legend_url = _extract_legend_url_from_layer(layer_elem)
 
         if name:
-            out.append({
-                "layerId": len(out),
-                "name": name,
-                "title": title or name,
-                "url": None,
-                "queryable": queryable,
-                "showPopup": False,
-                "legendUrl": legend_url,
-            })
+            out.append({"layerId": len(out), "name": name, "title": title or name, "url": None, "queryable": queryable, "showPopup": False, "legendUrl": legend_url})
 
         for child in list(layer_elem):
             if _strip_xml_ns(child.tag) == "Layer":
@@ -352,64 +244,38 @@ def _parse_wms_layers_from_capabilities_xml(xml_text: str) -> List[dict]:
                 if _strip_xml_ns(child.tag) == "Layer":
                     _walk_layer(child)
             break
-
     return out
 
-
-# =========================================================
 # Item / Typ / URL
-# =========================================================
 def _get_item_url(item):
-    url = getattr(item, "url", None)
-    if isinstance(url, str) and url.strip():
+    data = _safe_get_item_data(item)
+    props = _safe_get_item_properties(item)
+
+    url = _first_nonempty_str(
+        getattr(item, "url", None),
+        getattr(props, "url", None) if props else None,
+        data.get("url"),
+        data.get("serviceUrl"),
+    )
+    if url:
         return url
 
     try:
-        props = getattr(item, "properties", None)
-        if props:
-            url = getattr(props, "url", None)
-            if isinstance(url, str) and url.strip():
-                return url
-    except Exception:
-        pass
-
-    try:
-        data = item.get_data()
-        if isinstance(data, dict):
-            for key in ("url", "serviceUrl"):
-                val = data.get(key)
-                if isinstance(val, str) and val.strip():
-                    return val
-    except Exception:
-        pass
-
-    try:
         flc = FeatureLayerCollection.fromitem(item)
-        url = getattr(flc, "url", None)
-        if isinstance(url, str) and url.strip():
-            return url
+        return _first_nonempty_str(getattr(flc, "url", None))
     except Exception:
-        pass
-
-    return None
-
+        return None
 
 def _get_vector_tile_style_url(item):
-    try:
-        data = item.get_data()
-        if isinstance(data, dict):
-            style_url = data.get("styleUrl")
-            if isinstance(style_url, str) and style_url.strip():
-                return style_url
-    except Exception:
-        pass
+    data = _safe_get_item_data(item)
+    style_url = _first_nonempty_str(data.get("styleUrl"))
+    if style_url:
+        return style_url
 
     item_url = _get_item_url(item)
     if isinstance(item_url, str) and item_url.strip():
         return item_url.rstrip("/") + "/resources/styles/root.json"
-
     return None
-
 
 def _get_feature_sublayers(item):
     try:
@@ -426,9 +292,7 @@ def _get_feature_sublayers(item):
                     name = getattr(props, "name", None)
                     if layer_id is None:
                         continue
-
                     layer_id = int(layer_id)
-
                     out.append({
                         "layerId": layer_id,
                         "title": str(name) if name else f"Layer {layer_id}",
@@ -437,58 +301,39 @@ def _get_feature_sublayers(item):
                     })
                 except Exception:
                     continue
-
             if out:
                 return out
     except Exception:
         pass
-
     return []
 
-
 def _fetch_service_json(gis, service_url: str):
-    if not gis or not service_url:
-        return None
-
+    if not gis or not service_url: return None
     try:
         return gis._con.get(service_url, {"f": "json"})
     except Exception:
         return None
 
-
 def _detect_mapserver_mode(gis, service_url: Optional[str]) -> str:
-    if not gis or not service_url:
-        return "other"
-
-    if "/mapserver" not in service_url.lower():
-        return "other"
+    if not gis or not service_url: return "other"
+    if "/mapserver" not in service_url.lower(): return "other"
 
     base_url = re.sub(r"/\d+$", "", service_url.rstrip("/"))
     info = _fetch_service_json(gis, base_url)
-    if not isinstance(info, dict):
-        return "other"
-
-    if info.get("singleFusedMapCache") is True:
-        return "tile"
-
-    if isinstance(info.get("tileInfo"), dict):
-        return "tile"
-
+    if not isinstance(info, dict): return "other"
+    if info.get("singleFusedMapCache") is True: return "tile"
+    if isinstance(info.get("tileInfo"), dict): return "tile"
     return "mapimage"
 
-
 def _get_service_sublayers(gis, service_url: str):
-    if not service_url:
-        return []
+    if not service_url: return []
 
     base_url = re.sub(r"/\d+$", "", service_url.rstrip("/"))
     info = _fetch_service_json(gis, base_url)
-    if not isinstance(info, dict):
-        return []
+    if not isinstance(info, dict): return []
 
     layers = info.get("layers")
-    if not isinstance(layers, list) or not layers:
-        return []
+    if not isinstance(layers, list) or not layers: return []
 
     out = []
     for lyr in layers:
@@ -505,17 +350,8 @@ def _get_service_sublayers(gis, service_url: str):
             continue
 
         title = lyr.get("name") or lyr.get("title") or f"Layer {layer_id}"
-
         sub_ids = lyr.get("subLayerIds")
-        if isinstance(sub_ids, list):
-            clean_sub_ids = []
-            for sid in sub_ids:
-                sid_int = _safe_int(sid)
-                if sid_int is not None:
-                    clean_sub_ids.append(sid_int)
-        else:
-            clean_sub_ids = None
-
+        clean_sub_ids = [_safe_int(sid) for sid in sub_ids if _safe_int(sid) is not None] if isinstance(sub_ids, list) else None
         parent_layer_id = _safe_int(lyr.get("parentLayerId"))
 
         out.append({
@@ -527,91 +363,35 @@ def _get_service_sublayers(gis, service_url: str):
             "parentLayerId": parent_layer_id,
             "subLayerIds": clean_sub_ids,
         })
-
     return out
 
-
 def _get_wms_item_metadata(item) -> dict:
+    data = _safe_get_item_data(item)
+    props = _safe_get_item_properties(item)
+
     meta = {
-        "url": None,
-        "mapUrl": None,
-        "featureInfoUrl": None,
-        "featureInfoFormat": None,
-        "spatialReferences": None,
-        "version": None,
-        "format": None,
+        "url": _first_nonempty_str(data.get("url"), getattr(props, "url", None) if props else None, _get_item_url(item)),
+        "mapUrl": _first_nonempty_str(data.get("mapUrl"), getattr(props, "mapUrl", None) if props else None),
+        "featureInfoUrl": _first_nonempty_str(data.get("featureInfoUrl"), getattr(props, "featureInfoUrl", None) if props else None),
+        "featureInfoFormat": _first_nonempty_str(data.get("featureInfoFormat"), getattr(props, "featureInfoFormat", None) if props else None),
+        "spatialReferences": _first_nonempty_list(data.get("spatialReferences"), getattr(props, "spatialReferences", None) if props else None),
+        "version": _first_nonempty_str(data.get("version"), getattr(props, "version", None) if props else None),
+        "format": _first_nonempty_str(data.get("format"), getattr(props, "format", None) if props else None),
     }
 
-    try:
-        data = item.get_data()
-        if isinstance(data, dict):
-            for key in ("url", "mapUrl", "featureInfoUrl", "featureInfoFormat", "version", "format"):
-                val = data.get(key)
-                if isinstance(val, str) and val.strip():
-                    meta[key] = val.strip()
-
-            srefs = data.get("spatialReferences")
-            if isinstance(srefs, list) and srefs:
-                meta["spatialReferences"] = srefs
-    except Exception:
-        pass
-
-    try:
-        props = getattr(item, "properties", None)
-        if props:
-            for key in ("url", "mapUrl", "featureInfoUrl", "featureInfoFormat", "version", "format"):
-                val = getattr(props, key, None)
-                if isinstance(val, str) and val.strip() and not meta.get(key):
-                    meta[key] = val.strip()
-
-            srefs = getattr(props, "spatialReferences", None)
-            if isinstance(srefs, list) and srefs and not meta.get("spatialReferences"):
-                meta["spatialReferences"] = srefs
-    except Exception:
-        pass
-
-    if not meta["url"]:
-        item_url = _get_item_url(item)
-        if isinstance(item_url, str) and item_url.strip():
-            meta["url"] = item_url.strip()
-
-    if not meta["mapUrl"] and meta["url"]:
-        meta["mapUrl"] = _strip_query(meta["url"])
-
-    if not meta["featureInfoUrl"] and meta["url"]:
-        meta["featureInfoUrl"] = _strip_query(meta["url"])
-
-    if not meta["version"]:
-        meta["version"] = "1.3.0"
-
-    if not meta["format"]:
-        meta["format"] = "png"
-
+    if not meta["mapUrl"] and meta["url"]: meta["mapUrl"] = _strip_query(meta["url"])
+    if not meta["featureInfoUrl"] and meta["url"]: meta["featureInfoUrl"] = _strip_query(meta["url"])
+    if not meta["version"]: meta["version"] = "1.3.0"
+    if not meta["format"]: meta["format"] = "png"
     return meta
 
-
 def _get_wms_sublayers_from_item(item, gis=None):
+    data = _safe_get_item_data(item)
+    props = _safe_get_item_properties(item)
     candidates = []
-
-    try:
-        data = item.get_data()
-        if isinstance(data, dict):
-            for key in ("layers", "visibleLayers"):
-                val = data.get(key)
-                if isinstance(val, list):
-                    candidates.extend(val)
-    except Exception:
-        pass
-
-    try:
-        props = getattr(item, "properties", None)
-        if props:
-            for key in ("layers", "visibleLayers"):
-                val = getattr(props, key, None)
-                if isinstance(val, list):
-                    candidates.extend(val)
-    except Exception:
-        pass
+    for val in (data.get("layers"), data.get("visibleLayers"), getattr(props, "layers", None) if props else None, getattr(props, "visibleLayers", None) if props else None):
+        if isinstance(val, list):
+            candidates.extend(val)
 
     out = []
     seen = set()
@@ -644,22 +424,12 @@ def _get_wms_sublayers_from_item(item, gis=None):
                 continue
 
             seen.add(layer_name_str)
-            out.append({
-                "layerId": i,
-                "name": layer_name_str,
-                "title": layer_name_str,
-                "url": None,
-                "queryable": True,
-                "showPopup": False,
-                "legendUrl": None,
-            })
+            out.append({"layerId": i, "name": layer_name_str, "title": layer_name_str, "url": None, "queryable": True, "showPopup": False, "legendUrl": None})
 
-    if out:
-        return out
+    if out: return out
 
     item_url = _get_item_url(item)
-    if not item_url:
-        return []
+    if not item_url: return []
 
     caps_url = _build_wms_capabilities_url(item_url)
 
@@ -678,68 +448,43 @@ def _get_wms_sublayers_from_item(item, gis=None):
             return _parse_wms_layers_from_capabilities_xml(xml_text)
     except Exception:
         pass
-
     return []
 
-
 def _classify_by_url(url: Optional[str]) -> str:
-    if not url:
-        return "other"
-
+    if not url: return "other"
     u = url.lower()
-
-    if "/vectortileserver" in u:
-        return "vectortile"
-    if "/featureserver" in u:
-        return "feature"
-    if "wms" in u:
-        return "wms"
-    if "/mapserver" in u:
-        return "mapimage"
-
+    if "/vectortileserver" in u: return "vectortile"
+    if "/featureserver" in u: return "feature"
+    if "wms" in u: return "wms"
+    if "/mapserver" in u: return "mapimage"
     return "other"
-
 
 def _classify_layer_obj(layer_obj: dict) -> str:
     layer_type = (layer_obj.get("layerType") or "").lower()
     style_url = layer_obj.get("styleUrl")
     url = layer_obj.get("url")
 
-    if layer_type == "arcgistiledmapservicelayer":
-        return "tile"
-    if "vectortile" in layer_type:
-        return "vectortile"
-    if layer_type == "wms":
-        return "wms"
-    if "mapservice" in layer_type:
-        return "mapimage"
-    if "feature" in layer_type:
-        return "feature"
-    if isinstance(style_url, str) and "/vectortileserver" in style_url.lower():
-        return "vectortile"
-
+    if layer_type == "arcgistiledmapservicelayer": return "tile"
+    if "vectortile" in layer_type: return "vectortile"
+    if layer_type == "wms": return "wms"
+    if "mapservice" in layer_type: return "mapimage"
+    if "feature" in layer_type: return "feature"
+    if isinstance(style_url, str) and "/vectortileserver" in style_url.lower(): return "vectortile"
     return _classify_by_url(url)
-
 
 def _classify_item(item, item_url: Optional[str], gis=None) -> str:
     item_type = (getattr(item, "type", "") or "").lower()
 
-    if "vector tile" in item_type:
-        return "vectortile"
-
-    if "wms" in item_type:
-        return "wms"
-
-    if "tile layer" in item_type or "map tile layer" in item_type:
-        return "tile"
+    if "vector tile" in item_type: return "vectortile"
+    if "wms" in item_type: return "wms"
+    if "tile layer" in item_type or "map tile layer" in item_type: return "tile"
 
     if item_url and "/mapserver" in item_url.lower() and gis:
         mode = _detect_mapserver_mode(gis, item_url)
         if mode == "tile":
             return "tile"
 
-    if "map image" in item_type or "map service" in item_type:
-        return "mapimage"
+    if "map image" in item_type or "map service" in item_type: return "mapimage"
 
     if "feature" in item_type:
         if item_url and "/mapserver" in item_url.lower() and gis:
@@ -752,24 +497,16 @@ def _classify_item(item, item_url: Optional[str], gis=None) -> str:
         type_keywords = getattr(item, "typeKeywords", None) or []
         joined = " ".join(type_keywords).lower()
 
-        if "vectortile" in joined or "vector tile" in joined:
-            return "vectortile"
-
-        if "tile layer" in joined or "tiles" in joined or "tiled" in joined or "cached" in joined:
-            return "tile"
-
-        if "mapimage" in joined or "map service" in joined:
-            return "mapimage"
-
+        if "vectortile" in joined or "vector tile" in joined: return "vectortile"
+        if "tile layer" in joined or "tiles" in joined or "tiled" in joined or "cached" in joined: return "tile"
+        if "mapimage" in joined or "map service" in joined: return "mapimage"
         if "feature service" in joined or "feature layer" in joined:
             if item_url and "/mapserver" in (item_url or "").lower() and gis:
                 mode = _detect_mapserver_mode(gis, item_url)
                 if mode in {"tile", "mapimage"}:
                     return mode
             return "feature"
-
-        if "wms" in joined:
-            return "wms"
+        if "wms" in joined: return "wms"
     except Exception:
         pass
 
@@ -778,12 +515,8 @@ def _classify_item(item, item_url: Optional[str], gis=None) -> str:
         mode = _detect_mapserver_mode(gis, item_url)
         if mode in {"tile", "mapimage"}:
             return mode
-
-    if kind != "other":
-        return kind
-
+    if kind != "other": return kind
     return "other"
-
 
 def _fetch_old_item_titles(gis, old_ids: Set[str], runtime_issues: List[str]) -> Dict[str, str]:
     titles = {}
@@ -798,39 +531,24 @@ def _fetch_old_item_titles(gis, old_ids: Set[str], runtime_issues: List[str]) ->
             _add_runtime_issue(runtime_issues, f"Alter Layer-Titel konnte nicht geladen werden: {old_id} | {e}")
     return titles
 
-
 def _detect_target_structure_mode(item_type: str, sublayers: List[dict]) -> str:
-    if item_type == "feature":
-        return "group_children" if len(sublayers) > 1 else "single"
-
-    if item_type == "mapimage":
-        return "service_with_layers" if len(sublayers) > 0 else "single"
-
-    if item_type == "wms":
-        return "wms_with_layers" if len(sublayers) > 0 else "single"
-
-    if item_type == "tile":
-        return "single"
-
+    if item_type == "feature": return "group_children" if len(sublayers) > 1 else "single"
+    if item_type == "mapimage": return "service_with_layers" if len(sublayers) > 0 else "single"
+    if item_type == "wms": return "wms_with_layers" if len(sublayers) > 0 else "single"
+    if item_type == "tile": return "single"
     return "single"
-
 
 def _validate_target_url_for_type(target_info: dict, runtime_issues: List[str]):
     url = target_info.get("url")
-    if not isinstance(url, str) or not url.strip():
-        return
+    if not isinstance(url, str) or not url.strip(): return
 
     u = url.lower().rstrip("/")
-
     if target_info["type"] in {"mapimage", "tile"} and "/mapserver" not in u:
         _add_runtime_issue(runtime_issues, f"Ziel-URL wirkt ungewoehnlich fuer {target_info['type']}: {url}")
-
     if target_info["type"] == "feature" and "/featureserver" not in u:
         _add_runtime_issue(runtime_issues, f"Ziel-URL wirkt ungewoehnlich fuer feature: {url}")
-
     if target_info["type"] == "vectortile" and "/vectortileserver" not in u:
         _add_runtime_issue(runtime_issues, f"Ziel-URL wirkt ungewoehnlich fuer vectortile: {url}")
-
 
 def _analyze_new_target(item, gis, runtime_issues: List[str]):
     item_url = _get_item_url(item)
@@ -849,7 +567,6 @@ def _analyze_new_target(item, gis, runtime_issues: List[str]):
         wms_meta = _get_wms_item_metadata(item)
 
     structure_mode = _detect_target_structure_mode(item_type, sublayers)
-
     target_info = {
         "item": item,
         "itemId": item.id,
@@ -868,40 +585,25 @@ def _analyze_new_target(item, gis, runtime_issues: List[str]):
         "sublayer_count": len(sublayers),
         "structure_mode": structure_mode,
     }
-
     _validate_target_url_for_type(target_info, runtime_issues)
     return target_info
 
-
 def _build_new_url(old_layer_obj: dict, target_info: dict) -> Optional[str]:
     new_item_url = target_info["url"]
-    if not new_item_url:
-        return None
-
-    if target_info["type"] in {"mapimage", "tile", "wms"}:
-        return re.sub(r"/\d+$", "", new_item_url.rstrip("/"))
-
-    if re.search(r"/\d+$", new_item_url):
-        return new_item_url
-
+    if not new_item_url: return None
+    if target_info["type"] in {"mapimage", "tile", "wms"}: return re.sub(r"/\d+$", "", new_item_url.rstrip("/"))
+    if re.search(r"/\d+$", new_item_url): return new_item_url
     suffix = _extract_sublayer_suffix(old_layer_obj)
     return new_item_url.rstrip("/") + suffix if suffix else new_item_url
 
-
-# =========================================================
 # Treffererkennung
-# =========================================================
 def _find_descendant_match_for_old_ids(layer_obj: dict, old_ids: Set[str]) -> Optional[str]:
-    if not isinstance(layer_obj, dict):
-        return None
+    if not isinstance(layer_obj, dict): return None
 
     item_id = layer_obj.get("itemId")
     service_item_id = layer_obj.get("serviceItemId")
-
-    if item_id in old_ids:
-        return item_id
-    if service_item_id in old_ids:
-        return service_item_id
+    if item_id in old_ids: return item_id
+    if service_item_id in old_ids: return service_item_id
 
     children = layer_obj.get("layers")
     if isinstance(children, list):
@@ -911,9 +613,7 @@ def _find_descendant_match_for_old_ids(layer_obj: dict, old_ids: Set[str]) -> Op
             hit = _find_descendant_match_for_old_ids(child, old_ids)
             if hit:
                 return hit
-
     return None
-
 
 def _collect_descendant_item_ids(layer_obj: dict) -> Set[str]:
     found = set()
@@ -924,11 +624,8 @@ def _collect_descendant_item_ids(layer_obj: dict) -> Set[str]:
 
         item_id = obj.get("itemId")
         service_item_id = obj.get("serviceItemId")
-
-        if isinstance(item_id, str) and item_id.strip():
-            found.add(item_id)
-        if isinstance(service_item_id, str) and service_item_id.strip():
-            found.add(service_item_id)
+        if isinstance(item_id, str) and item_id.strip(): found.add(item_id)
+        if isinstance(service_item_id, str) and service_item_id.strip(): found.add(service_item_id)
 
         children = obj.get("layers")
         if isinstance(children, list):
@@ -939,12 +636,10 @@ def _collect_descendant_item_ids(layer_obj: dict) -> Set[str]:
     _walk(layer_obj)
     return found
 
-
 def _group_contains_foreign_ids(layer_obj: dict, allowed_old_ids: Set[str]) -> Tuple[bool, Set[str]]:
     all_ids = _collect_descendant_item_ids(layer_obj)
     foreign_ids = {x for x in all_ids if x not in allowed_old_ids}
     return (len(foreign_ids) > 0, foreign_ids)
-
 
 def _get_direct_matched_old_id(layer_obj: dict, old_ids: Set[str], old_item_titles: Dict[str, str]) -> Optional[str]:
     item_id = layer_obj.get("itemId")
@@ -956,150 +651,94 @@ def _get_direct_matched_old_id(layer_obj: dict, old_ids: Set[str], old_item_titl
     elif service_item_id in old_ids:
         matched_old_id = service_item_id
 
-    if not matched_old_id:
-        return None
+    if not matched_old_id: return None
 
     expected_title = old_item_titles.get(matched_old_id)
-    if expected_title and not _title_matches_exact(layer_obj.get("title"), expected_title):
-        return None
-
+    if expected_title and not _title_matches_exact(layer_obj.get("title"), expected_title): return None
     return matched_old_id
 
-
 def _analyze_group_replace_candidate(layer_obj: dict, old_ids: Set[str], old_item_titles: Dict[str, str]) -> dict:
-    result = {
-        "is_candidate": False,
-        "matched_old_id": None,
-        "has_foreign_ids": False,
-        "foreign_ids": set(),
-    }
-
-    if layer_obj.get("layerType") != "GroupLayer":
-        return result
+    result = {"is_candidate": False, "matched_old_id": None, "has_foreign_ids": False, "foreign_ids": set()}
+    if layer_obj.get("layerType") != "GroupLayer": return result
 
     matched_old_id = _find_descendant_match_for_old_ids(layer_obj, old_ids)
-    if not matched_old_id:
-        return result
+    if not matched_old_id: return result
 
     expected_title = old_item_titles.get(matched_old_id)
-    if not expected_title:
-        return result
-
-    if not _title_matches_exact(layer_obj.get("title"), expected_title):
-        return result
+    if not expected_title: return result
+    if not _title_matches_exact(layer_obj.get("title"), expected_title): return result
 
     result["is_candidate"] = True
     result["matched_old_id"] = matched_old_id
-
     has_foreign_ids, foreign_ids = _group_contains_foreign_ids(layer_obj, old_ids)
     result["has_foreign_ids"] = has_foreign_ids
     result["foreign_ids"] = foreign_ids
-
     return result
 
-
-# =========================================================
 # Unterlayer-Matching
-# =========================================================
 def _index_old_group_children_by_title(old_layer_obj: dict) -> Dict[str, List[dict]]:
     by_title = {}
     children = old_layer_obj.get("layers")
-
-    if not isinstance(children, list):
-        return by_title
+    if not isinstance(children, list): return by_title
 
     for child in children:
         if not isinstance(child, dict):
             continue
-
         title_norm = _normalize_text(child.get("title"))
         if not title_norm:
             continue
-
         by_title.setdefault(title_norm, []).append(child)
-
     return by_title
-
 
 def _index_old_service_children_by_title(old_layer_obj: dict) -> Dict[str, List[dict]]:
     by_title = {}
     children = old_layer_obj.get("layers")
-
-    if not isinstance(children, list):
-        return by_title
+    if not isinstance(children, list): return by_title
 
     for child in children:
         if not isinstance(child, dict):
             continue
-
         title_norm = _normalize_text(child.get("title") or child.get("name"))
         if not title_norm:
             continue
-
         by_title.setdefault(title_norm, []).append(child)
-
     return by_title
-
 
 def _is_plausible_sublayer_match(old_child: dict, new_sub: dict) -> bool:
     old_layer_id = _get_layer_id_as_int(old_child)
     new_layer_id = new_sub.get("layerId")
-
-    if isinstance(new_layer_id, str) and new_layer_id.isdigit():
-        new_layer_id = int(new_layer_id)
-
-    if old_layer_id is None or new_layer_id is None:
-        return True
-
+    if isinstance(new_layer_id, str) and new_layer_id.isdigit(): new_layer_id = int(new_layer_id)
+    if old_layer_id is None or new_layer_id is None: return True
     return old_layer_id == new_layer_id
-
 
 def _find_matching_old_child_for_new_sub(new_sub: dict, old_by_title: Dict[str, List[dict]]) -> Optional[dict]:
     title_norm = _normalize_text(new_sub.get("title"))
-    if not title_norm:
-        return None
+    if not title_norm: return None
 
     candidates = old_by_title.get(title_norm) or []
-    if len(candidates) != 1:
-        return None
+    if len(candidates) != 1: return None
 
     candidate = candidates[0]
-    if not _is_plausible_sublayer_match(candidate, new_sub):
-        return None
-
+    if not _is_plausible_sublayer_match(candidate, new_sub): return None
     return candidate
 
-
 def _build_expected_new_sublayer_signatures(target_info: dict) -> List[Tuple[str, Optional[int]]]:
-    sigs = []
-    for sub in target_info.get("sublayers", []):
-        sigs.append((_normalize_text(sub.get("title")), sub.get("layerId")))
-    return sigs
-
+    return [(_normalize_text(sub.get("title")), sub.get("layerId")) for sub in target_info.get("sublayers", [])]
 
 def _matches_expected_sublayer_signature(layer_obj: dict, expected_signatures: List[Tuple[str, Optional[int]]]) -> bool:
     title_norm = _normalize_text(layer_obj.get("title"))
-    if not title_norm:
-        return False
+    if not title_norm: return False
 
     layer_id = _get_layer_id_as_int(layer_obj)
-
     for exp_title, exp_layer_id in expected_signatures:
         if title_norm != exp_title:
             continue
-
-        if exp_layer_id is None or layer_id is None:
-            return True
-
-        if layer_id == exp_layer_id:
-            return True
-
+        if exp_layer_id is None or layer_id is None: return True
+        if layer_id == exp_layer_id: return True
     return False
 
-
 def _remove_matching_sublayers_outside_path(layers, expected_signatures, skip_exact_path, path="operationalLayers") -> int:
-    if not isinstance(layers, list):
-        return 0
+    if not isinstance(layers, list): return 0
 
     removed = 0
     kept = []
@@ -1110,43 +749,31 @@ def _remove_matching_sublayers_outside_path(layers, expected_signatures, skip_ex
         if not isinstance(lyr, dict):
             kept.append(lyr)
             continue
-
         if current_path == skip_exact_path:
             kept.append(lyr)
             continue
-
         if current_path.startswith(skip_exact_path + "."):
             kept.append(lyr)
             continue
-
         if _matches_expected_sublayer_signature(lyr, expected_signatures):
             removed += 1
             continue
 
         children = lyr.get("layers")
         if isinstance(children, list):
-            removed += _remove_matching_sublayers_outside_path(
-                children,
-                expected_signatures,
-                skip_exact_path,
-                current_path + ".layers",
-            )
+            removed += _remove_matching_sublayers_outside_path(children, expected_signatures, skip_exact_path, current_path + ".layers")
 
         kept.append(lyr)
 
     layers[:] = kept
     return removed
 
-
-# =========================================================
 # Tile-Sonderweg - reduziert
-# =========================================================
 def _build_minimal_tile_block(old_layer_obj: dict, target_info: dict) -> dict:
     if not target_info.get("url"):
         raise RuntimeError("Tile-Ziel hat keine URL.")
 
     tile_url = re.sub(r"/\d+$", "", target_info["url"].rstrip("/"))
-
     fresh = {
         "itemId": target_info["itemId"],
         "url": tile_url,
@@ -1159,31 +786,46 @@ def _build_minimal_tile_block(old_layer_obj: dict, target_info: dict) -> dict:
     elif old_layer_obj.get("title"):
         fresh["title"] = _json_clone(old_layer_obj["title"])
 
-    allowed = (set(SAFE_KEYS) - {"id"}) | TARGET_TYPE_KEYS.get("tile", set())
+    allowed = (set(SAFE_KEYS) - {"id"}) | TYPE_KEYS.get("tile", set())
     allowed -= NEVER_COPY_KEYS
 
     for k in allowed:
         if k in old_layer_obj:
             fresh[k] = _json_clone(old_layer_obj[k])
 
-    for bad_key in (
-        "featureCollection",
-        "layers",
-        "visibleLayers",
-        "layerDefinition",
-        "popupInfo",
-        "serviceItemId",
-        "disablePopup",
-        "visibilityMode",
-    ):
+    for bad_key in ("featureCollection", "layers", "visibleLayers", "layerDefinition", "popupInfo", "serviceItemId", "disablePopup", "visibilityMode"):
         fresh.pop(bad_key, None)
 
     return fresh
 
+def _replace_tile_layer(lyr: dict, path: str, matched_old_id: str, old_type: str, old_item_titles: Dict[str, str], target_info: dict, context: dict):
+    before = _json_clone(lyr)
+    fresh = _build_minimal_tile_block(before, target_info)
+    lyr.clear()
+    lyr.update(fresh)
+    context["tile_keep_path"] = path
+    return _make_hit(
+        path,
+        matched_old_id,
+        old_item_titles,
+        old_type,
+        target_info["type"],
+        {
+            "mode": f"TILE_MINIMAL_REPLACE({old_type}->tile)",
+            "changed": True,
+            "before_title": before.get("title"),
+            "after_title": lyr.get("title"),
+            "before_url": before.get("url"),
+            "after_url": lyr.get("url"),
+            "transferred_keys": None,
+            "dropped_keys": sorted([k for k in before.keys() if k not in lyr]),
+            "group_replaced": False,
+            "final_block": _json_clone(lyr),
+        },
+    )
 
 def _dedupe_target_tile_layers(layers, target_item_id: str, keep_path: Optional[str] = None, path="operationalLayers") -> int:
-    if not isinstance(layers, list):
-        return 0
+    if not isinstance(layers, list): return 0
 
     removed = 0
     kept = []
@@ -1202,39 +844,26 @@ def _dedupe_target_tile_layers(layers, target_item_id: str, keep_path: Optional[
 
         children = lyr.get("layers")
         if isinstance(children, list):
-            removed += _dedupe_target_tile_layers(
-                children,
-                target_item_id=target_item_id,
-                keep_path=keep_path,
-                path=current_path + ".layers",
-            )
+            removed += _dedupe_target_tile_layers(children, target_item_id=target_item_id, keep_path=keep_path, path=current_path + ".layers")
 
         kept.append(lyr)
 
     layers[:] = kept
     return removed
 
-
 def _collect_matching_target_layers(layers, target_item_id: str, out: Optional[List[dict]] = None) -> List[dict]:
-    if out is None:
-        out = []
-
-    if not isinstance(layers, list):
-        return out
+    if out is None: out = []
+    if not isinstance(layers, list): return out
 
     for lyr in layers:
         if not isinstance(lyr, dict):
             continue
-
         if lyr.get("itemId") == target_item_id:
             out.append(lyr)
-
         children = lyr.get("layers")
         if isinstance(children, list):
             _collect_matching_target_layers(children, target_item_id, out)
-
     return out
-
 
 def _validate_final_tile_targets(data: dict, target_info: dict) -> Tuple[bool, List[str]]:
     messages = []
@@ -1251,22 +880,13 @@ def _validate_final_tile_targets(data: dict, target_info: dict) -> Tuple[bool, L
 
     return True, messages
 
-
-# =========================================================
 # Block-Builder
-# =========================================================
 def _build_structured_feature_child_layer(old_child: Optional[dict], sub: dict, target_info: dict) -> dict:
     target_item_id = target_info["itemId"]
-
-    if old_child:
-        old_child_type = _classify_layer_obj(old_child)
-        transfer_props = _collect_transferable_props(old_child, old_child_type, "feature")
-    else:
-        transfer_props = {}
+    transfer_props = _collect_transferable_props(old_child, _classify_layer_obj(old_child), "feature") if old_child else {}
 
     child = {}
     child.update(transfer_props)
-
     child["id"] = f"{target_item_id}_{sub['layerId']}"
     child["title"] = sub["title"]
     child["url"] = sub["url"]
@@ -1277,9 +897,7 @@ def _build_structured_feature_child_layer(old_child: Optional[dict], sub: dict, 
 
     for k in NEVER_COPY_KEYS:
         child.pop(k, None)
-
     return child
-
 
 def _build_feature_group_children_with_transfer(old_layer_obj: dict, target_info: dict):
     children = []
@@ -1287,88 +905,61 @@ def _build_feature_group_children_with_transfer(old_layer_obj: dict, target_info
 
     for sub in target_info["sublayers"]:
         old_child = _find_matching_old_child_for_new_sub(sub, old_by_title)
-        if old_child:
-            child = _build_structured_feature_child_layer(old_child, sub, target_info)
-        else:
-            child = _build_structured_feature_child_layer(None, sub, target_info)
+        child = _build_structured_feature_child_layer(old_child, sub, target_info) if old_child else _build_structured_feature_child_layer(None, sub, target_info)
         children.append(child)
 
     children.reverse()
     return children
 
-
 def _build_feature_group_block(old_layer_obj: dict, target_info: dict, old_type: str) -> dict:
     fresh = {}
-    parent_safe = _copy_group_parent_safe_props(old_layer_obj, old_type)
-    fresh.update(parent_safe)
-
+    fresh.update(_copy_group_parent_safe_props(old_layer_obj, old_type))
     fresh["layerType"] = "GroupLayer"
     fresh["title"] = target_info["title"] if (UPDATE_TITLE_TO_NEW and target_info["title"]) else old_layer_obj.get("title")
     fresh["layers"] = _build_feature_group_children_with_transfer(old_layer_obj, target_info)
     fresh["visibilityMode"] = "independent"
-
     for k in NEVER_COPY_KEYS:
         fresh.pop(k, None)
-
     return fresh
-
 
 def _build_single_layer_block(old_layer_obj: dict, target_info: dict, old_type: str) -> dict:
     new_type = target_info["type"]
     new_id = target_info["itemId"]
-    new_title = target_info["title"]
     new_url = _build_new_url(old_layer_obj, target_info)
+    title = target_info["title"] if (UPDATE_TITLE_TO_NEW and target_info["title"]) else old_layer_obj.get("title")
 
-    if not new_url and new_type not in {"vectortile"}:
+    if not new_url and new_type != "vectortile":
         raise RuntimeError("Neue URL fehlt.")
+    if new_type == "tile":
+        raise RuntimeError("Tile wird im Sonderweg behandelt und darf hier nicht landen.")
+    if new_type == "wms":
+        raise RuntimeError("WMS mit Unterlayern wird ueber Sonderweg gebaut und darf hier nicht landen.")
 
-    fresh = {}
-    transfer_props = _collect_transferable_props(old_layer_obj, old_type, new_type)
-    fresh.update(transfer_props)
+    if new_type == "mapimage":
+        fresh = _build_clean_base_props_for_service_target(old_layer_obj, title, new_id)
+        fresh["layerType"] = "ArcGISMapServiceLayer"
+        fresh["itemId"] = new_id
+        if new_url: fresh["url"] = new_url
+        return fresh
 
-    fresh["title"] = new_title if (UPDATE_TITLE_TO_NEW and new_title) else old_layer_obj.get("title")
-
+    fresh = _collect_transferable_props(old_layer_obj, old_type, new_type)
+    fresh["title"] = title
     for k in NEVER_COPY_KEYS:
         fresh.pop(k, None)
 
     if new_type == "feature":
         fresh["layerType"] = "ArcGISFeatureLayer"
-        fresh["itemId"] = new_id
-        fresh["serviceItemId"] = new_id
-        if new_url:
-            fresh["url"] = new_url
-
-    elif new_type == "mapimage":
-        fresh = _build_clean_base_props_for_service_target(
-            old_layer_obj=old_layer_obj,
-            new_title=new_title if (UPDATE_TITLE_TO_NEW and new_title) else old_layer_obj.get("title"),
-            fallback_id=target_info["itemId"],
-        )
-        fresh["layerType"] = "ArcGISMapServiceLayer"
-        fresh["itemId"] = new_id
-        if new_url:
-            fresh["url"] = new_url
-
-    elif new_type == "tile":
-        raise RuntimeError("Tile wird im Sonderweg behandelt und darf hier nicht landen.")
-
-    elif new_type == "wms":
-        raise RuntimeError("WMS mit Unterlayern wird ueber Sonderweg gebaut und darf hier nicht landen.")
-
     elif new_type == "vectortile":
         fresh["layerType"] = "VectorTileLayer"
-        fresh["itemId"] = new_id
-        fresh["serviceItemId"] = new_id
-        if new_url:
-            fresh["url"] = new_url
         if target_info.get("styleUrl"):
             fresh["styleUrl"] = target_info["styleUrl"]
-
     else:
         raise RuntimeError(f"Zieltyp '{new_type}' wird nicht unterstuetzt.")
 
+    fresh["itemId"] = new_id
+    fresh["serviceItemId"] = new_id
+    if new_url: fresh["url"] = new_url
     return fresh
-
 
 def _build_mapimage_service_with_layers_block(old_layer_obj: dict, target_info: dict, old_type: str) -> dict:
     new_url = _build_new_url(old_layer_obj, target_info)
@@ -1399,16 +990,11 @@ def _build_mapimage_service_with_layers_block(old_layer_obj: dict, target_info: 
 
     if visible_layer_ids:
         fresh["visibleLayers"] = visible_layer_ids
-
     return fresh
-
 
 def _build_wms_with_layers_block(old_layer_obj: dict, target_info: dict, old_type: str) -> dict:
     fresh = {}
-
-    transfer_props = _collect_transferable_props(old_layer_obj, old_type, "wms")
-    fresh.update(transfer_props)
-
+    fresh.update(_collect_transferable_props(old_layer_obj, old_type, "wms"))
     new_url = _build_new_url(old_layer_obj, target_info)
     if not new_url:
         raise RuntimeError("Neue URL fehlt.")
@@ -1420,28 +1006,17 @@ def _build_wms_with_layers_block(old_layer_obj: dict, target_info: dict, old_typ
 
     map_url = _strip_query(target_info.get("mapUrl") or target_info.get("url"))
     feature_info_url = _strip_query(target_info.get("featureInfoUrl") or target_info.get("url"))
-
-    if map_url:
-        fresh["mapUrl"] = map_url
-
-    if feature_info_url:
-        fresh["featureInfoUrl"] = feature_info_url
-
-    if target_info.get("featureInfoFormat"):
-        fresh["featureInfoFormat"] = target_info["featureInfoFormat"]
-
-    if target_info.get("spatialReferences"):
-        fresh["spatialReferences"] = target_info["spatialReferences"]
-
-    if target_info.get("version"):
-        fresh["version"] = target_info["version"]
+    if map_url: fresh["mapUrl"] = map_url
+    if feature_info_url: fresh["featureInfoUrl"] = feature_info_url
+    if target_info.get("featureInfoFormat"): fresh["featureInfoFormat"] = target_info["featureInfoFormat"]
+    if target_info.get("spatialReferences"): fresh["spatialReferences"] = target_info["spatialReferences"]
+    if target_info.get("version"): fresh["version"] = target_info["version"]
 
     wms_layers = []
     for sub in target_info["sublayers"]:
         sub_name = sub.get("name")
         if not sub_name:
             continue
-
         wms_layers.append({
             "legendUrl": sub.get("legendUrl"),
             "name": sub_name,
@@ -1454,7 +1029,6 @@ def _build_wms_with_layers_block(old_layer_obj: dict, target_info: dict, old_typ
         raise RuntimeError("WMS-Ziel hat keine gueltigen Sublayer.")
 
     fresh["layers"] = wms_layers
-
     old_by_title = _index_old_service_children_by_title(old_layer_obj)
     visible_names = []
 
@@ -1463,30 +1037,20 @@ def _build_wms_with_layers_block(old_layer_obj: dict, target_info: dict, old_typ
         if isinstance(old_child, dict) and old_child.get("visibility") is True:
             visible_names.append(sub["name"])
 
-    if visible_names:
-        fresh["visibleLayers"] = visible_names
-    else:
-        fresh["visibleLayers"] = [lyr["name"] for lyr in wms_layers]
-
+    fresh["visibleLayers"] = visible_names if visible_names else [lyr["name"] for lyr in wms_layers]
     for k in NEVER_COPY_KEYS:
         fresh.pop(k, None)
-
     fresh.pop("serviceItemId", None)
     return fresh
-
 
 def _build_replacement_block(old_layer_obj: dict, target_info: dict, old_type: str) -> Tuple[dict, str]:
     if target_info["structure_mode"] == "group_children":
         return _build_feature_group_block(old_layer_obj, target_info, old_type), f"GROUP_CHILDREN({old_type}->{target_info['type']})"
-
     if target_info["structure_mode"] == "service_with_layers":
         return _build_mapimage_service_with_layers_block(old_layer_obj, target_info, old_type), f"SERVICE_WITH_LAYERS({old_type}->{target_info['type']})"
-
     if target_info["structure_mode"] == "wms_with_layers":
         return _build_wms_with_layers_block(old_layer_obj, target_info, old_type), f"WMS_WITH_LAYERS({old_type}->{target_info['type']})"
-
     return _build_single_layer_block(old_layer_obj, target_info, old_type), f"SINGLE_BLOCK({old_type}->{target_info['type']})"
-
 
 def _soft_replace_feature(layer_obj: dict, matched_old_id: str, target_info: dict):
     before = _json_clone(layer_obj)
@@ -1496,25 +1060,20 @@ def _soft_replace_feature(layer_obj: dict, matched_old_id: str, target_info: dic
     if layer_obj.get("itemId") == matched_old_id:
         layer_obj["itemId"] = target_info["itemId"]
         changed = True
-
     if layer_obj.get("serviceItemId") == matched_old_id:
         layer_obj["serviceItemId"] = target_info["itemId"]
         changed = True
-
     if "featureCollection" in layer_obj:
         layer_obj.pop("featureCollection", None)
         changed = True
-
     if new_url and layer_obj.get("url") != new_url:
         layer_obj["url"] = new_url
         changed = True
-
     if UPDATE_TITLE_TO_NEW and target_info["title"] and layer_obj.get("title") != target_info["title"]:
         layer_obj["title"] = target_info["title"]
         changed = True
 
     after = _json_clone(layer_obj)
-
     return {
         "mode": "SOFT(feature)",
         "changed": changed,
@@ -1528,16 +1087,12 @@ def _soft_replace_feature(layer_obj: dict, matched_old_id: str, target_info: dic
         "final_block": after,
     }
 
-
 def _hard_replace_with_built_block(layer_obj: dict, target_info: dict, old_type: str):
     before = _json_clone(layer_obj)
     fresh, mode = _build_replacement_block(before, target_info, old_type)
 
     dropped_keys = sorted([k for k in before.keys() if k not in fresh])
-    transferred_keys = sorted([
-        k for k in fresh.keys()
-        if k in before and k not in {"title", "url", "itemId", "serviceItemId", "layerType", "layers", "visibilityMode"}
-    ])
+    transferred_keys = sorted([k for k in fresh.keys() if k in before and k not in {"title", "url", "itemId", "serviceItemId", "layerType", "layers", "visibilityMode"}])
 
     layer_obj.clear()
     layer_obj.update(fresh)
@@ -1556,83 +1111,32 @@ def _hard_replace_with_built_block(layer_obj: dict, target_info: dict, old_type:
         "final_block": after,
     }
 
-
-# =========================================================
 # Walker
-# =========================================================
-def _walk_and_replace(
-    layers,
-    old_ids,
-    old_item_titles,
-    target_info,
-    context,
-    path="operationalLayers",
-):
+def _walk_and_replace(layers, old_ids, old_item_titles, target_info, context, path="operationalLayers"):
     hits = []
-
-    if not isinstance(layers, list):
-        return hits
+    if not isinstance(layers, list): return hits
 
     for i, lyr in enumerate(layers):
         if not isinstance(lyr, dict):
             continue
 
         p = f"{path}[{i}]"
-
         matched_old_id = _get_direct_matched_old_id(lyr, old_ids, old_item_titles)
+
         if matched_old_id:
             old_type = _classify_layer_obj(lyr)
 
             if target_info["type"] == "tile":
-                before = _json_clone(lyr)
-                fresh = _build_minimal_tile_block(before, target_info)
-
-                lyr.clear()
-                lyr.update(fresh)
-
-                context["tile_keep_path"] = p
-
-                hits.append({
-                    "path": p,
-                    "matched_old_id": matched_old_id,
-                    "old_item_title_filter": old_item_titles.get(matched_old_id),
-                    "old_type": old_type,
-                    "new_type": target_info["type"],
-                    "mode": f"TILE_MINIMAL_REPLACE({old_type}->tile)",
-                    "changed": True,
-                    "before_title": before.get("title"),
-                    "after_title": lyr.get("title"),
-                    "before_url": before.get("url"),
-                    "after_url": lyr.get("url"),
-                    "transferred_keys": None,
-                    "dropped_keys": sorted([k for k in before.keys() if k not in lyr]),
-                    "group_replaced": False,
-                    "final_block": _json_clone(lyr),
-                })
+                hits.append(_replace_tile_layer(lyr=lyr, path=p, matched_old_id=matched_old_id, old_type=old_type, old_item_titles=old_item_titles, target_info=target_info, context=context))
                 continue
 
-            use_soft = (
-                old_type == "feature"
-                and target_info["type"] == "feature"
-                and target_info["structure_mode"] == "single"
-            )
-
-            if use_soft:
-                result = _soft_replace_feature(lyr, matched_old_id, target_info)
-            else:
-                result = _hard_replace_with_built_block(lyr, target_info, old_type)
+            use_soft = old_type == "feature" and target_info["type"] == "feature" and target_info["structure_mode"] == "single"
+            result = _soft_replace_feature(lyr, matched_old_id, target_info) if use_soft else _hard_replace_with_built_block(lyr, target_info, old_type)
 
             if result.get("group_replaced"):
                 context["group_layer_replaced"] = True
 
-            hits.append({
-                "path": p,
-                "matched_old_id": matched_old_id,
-                "old_item_title_filter": old_item_titles.get(matched_old_id),
-                "old_type": old_type,
-                "new_type": target_info["type"],
-                **result,
-            })
+            hits.append(_make_hit(p, matched_old_id, old_item_titles, old_type, target_info["type"], result))
             continue
 
         group_info = _analyze_group_replace_candidate(lyr, old_ids, old_item_titles)
@@ -1642,82 +1146,26 @@ def _walk_and_replace(
                 continue
 
             if target_info["type"] == "tile":
-                before = _json_clone(lyr)
-                fresh = _build_minimal_tile_block(before, target_info)
-
-                lyr.clear()
-                lyr.update(fresh)
-
-                context["tile_keep_path"] = p
-
-                hits.append({
-                    "path": p,
-                    "matched_old_id": group_info["matched_old_id"],
-                    "old_item_title_filter": old_item_titles.get(group_info["matched_old_id"]),
-                    "old_type": "group-parent",
-                    "new_type": target_info["type"],
-                    "mode": "TILE_MINIMAL_REPLACE(group-parent->tile)",
-                    "changed": True,
-                    "before_title": before.get("title"),
-                    "after_title": lyr.get("title"),
-                    "before_url": before.get("url"),
-                    "after_url": lyr.get("url"),
-                    "transferred_keys": None,
-                    "dropped_keys": sorted([k for k in before.keys() if k not in lyr]),
-                    "group_replaced": False,
-                    "final_block": _json_clone(lyr),
-                })
+                hits.append(_replace_tile_layer(lyr=lyr, path=p, matched_old_id=group_info["matched_old_id"], old_type="group-parent", old_item_titles=old_item_titles, target_info=target_info, context=context))
                 continue
 
             removed_before_replace = 0
             if target_info["structure_mode"] == "group_children":
                 expected_signatures = _build_expected_new_sublayer_signatures(target_info)
-                removed_before_replace = _remove_matching_sublayers_outside_path(
-                    context["root_operational_layers"],
-                    expected_signatures,
-                    p,
-                    path="operationalLayers",
-                )
+                removed_before_replace = _remove_matching_sublayers_outside_path(context["root_operational_layers"], expected_signatures, p, path="operationalLayers")
 
             result = _hard_replace_with_built_block(lyr, target_info, "group-parent")
             context["group_layer_replaced"] = True
-
-            hits.append({
-                "path": p,
-                "matched_old_id": group_info["matched_old_id"],
-                "old_item_title_filter": old_item_titles.get(group_info["matched_old_id"]),
-                "old_type": "group-parent",
-                "new_type": target_info["type"],
-                "removed_before_replace": removed_before_replace,
-                **result,
-            })
+            hits.append(_make_hit(p, group_info["matched_old_id"], old_item_titles, "group-parent", target_info["type"], result, removed_before_replace=removed_before_replace))
             continue
 
         if lyr.get("layerType") == "GroupLayer" and isinstance(lyr.get("layers"), list):
-            hits.extend(
-                _walk_and_replace(
-                    lyr["layers"],
-                    old_ids,
-                    old_item_titles,
-                    target_info,
-                    context,
-                    p + ".layers",
-                )
-            )
+            hits.extend(_walk_and_replace(lyr["layers"], old_ids, old_item_titles, target_info, context, p + ".layers"))
 
     return hits
 
-
-# =========================================================
 # Fachfunktion
-# =========================================================
-def run_layer_replacement(
-    old_layer_itemids: Set[str],
-    new_layer_itemid: str,
-    dry_run: bool = True,
-    message_func=None,
-    warning_func=None,
-):
+def run_layer_replacement(old_layer_itemid: str, new_layer_itemid: str, dry_run: bool = True, message_func=None, warning_func=None):
     runtime_issues: List[str] = []
 
     portal_url = arcpy.GetActivePortalURL()
@@ -1726,17 +1174,10 @@ def run_layer_replacement(
 
     token_info = arcpy.GetSigninToken()
     if token_info is None:
-        raise RuntimeError(
-            "In ArcGIS Pro ist kein Portal-Login aktiv. "
-            "Bitte zuerst in ArcGIS Pro am Portal anmelden."
-        )
+        raise RuntimeError("In ArcGIS Pro ist kein Portal-Login aktiv. Bitte zuerst in ArcGIS Pro am Portal anmelden.")
 
     try:
-        gis = GIS(
-            url=portal_url,
-            token=token_info["token"],
-            referer=token_info.get("referer")
-        )
+        gis = GIS(url=portal_url, token=token_info["token"], referer=token_info.get("referer"))
     except Exception as e:
         raise RuntimeError(f"Anmeldung am aktiven Portal fehlgeschlagen: {e}")
 
@@ -1749,11 +1190,16 @@ def run_layer_replacement(
     _msg(message_func, f"Portal: {portal_url}")
     _msg(message_func, "Es werden nur WebMaps dieses Owners verarbeitet.")
 
-    if not old_layer_itemids:
+    old_layer_itemid = old_layer_itemid.strip() if old_layer_itemid else ""
+    if not old_layer_itemid:
         raise RuntimeError("Es wurde keine alte Layer-ID uebergeben.")
 
-    old_item_titles = _fetch_old_item_titles(gis, old_layer_itemids, runtime_issues)
+    old_ids = {old_layer_itemid}
+    new_layer_itemid = new_layer_itemid.strip() if new_layer_itemid else ""
+    if not new_layer_itemid:
+        raise RuntimeError("Es wurde keine neue Layer-ID uebergeben.")
 
+    old_item_titles = _fetch_old_item_titles(gis, old_ids, runtime_issues)
     new_item = gis.content.get(new_layer_itemid)
     if not new_item:
         raise RuntimeError("Neue Layer-ID nicht gefunden.")
@@ -1761,24 +1207,17 @@ def run_layer_replacement(
     target_info = _analyze_new_target(new_item, gis, runtime_issues)
 
     if target_info["type"] == "wms" and not target_info["sublayers"]:
-        raise RuntimeError(
-            "Das WMS-Ziel liefert keine auswertbaren Sublayer. "
-            "Automatischer Austausch wird aus Sicherheitsgruenden abgebrochen."
-        )
+        raise RuntimeError("Das WMS-Ziel liefert keine auswertbaren Sublayer. Automatischer Austausch wird aus Sicherheitsgruenden abgebrochen.")
 
     _msg(message_func, "")
-    _msg(message_func, f"Alte Layer-IDs: {', '.join(sorted(old_layer_itemids))}")
+    _msg(message_func, f"Alte Layer-ID: {old_layer_itemid}")
 
-    if old_item_titles:
-        _msg(message_func, "Automatische Titel-Filter aus alten IDs:")
-        for old_id in sorted(old_item_titles):
-            _msg(message_func, f"  {old_id} -> {old_item_titles[old_id]}")
+    if old_item_titles and old_layer_itemid in old_item_titles:
+        _msg(message_func, "Automatischer Titel-Filter aus alter ID:")
+        _msg(message_func, f"  {old_layer_itemid} -> {old_item_titles[old_layer_itemid]}")
     else:
-        _msg(message_func, "Automatische Titel-Filter: keine verfuegbar")
-        _add_runtime_issue(
-            runtime_issues,
-            "Fuer keine alte Layer-ID konnte ein Titel geladen werden. Titel-Matching wird dadurch unvollstaendig."
-        )
+        _msg(message_func, "Automatischer Titel-Filter: keiner verfuegbar")
+        _add_runtime_issue(runtime_issues, "Fuer die alte Layer-ID konnte kein Titel geladen werden. Titel-Matching wird dadurch unvollstaendig.")
 
     _msg(message_func, f"Neues Item: {new_item.title} ({new_item.id})")
     _msg(message_func, f"Neuer Item-Type: {getattr(new_item, 'type', None)}")
@@ -1803,28 +1242,16 @@ def run_layer_replacement(
         pass
 
     if (getattr(new_item, "type", "") or "").lower() == "web map":
-        raise RuntimeError(
-            "Die neue Layer-ID zeigt auf eine WebMap, nicht auf ein Layer-Item. "
-            "Bitte die Item-ID des eigentlichen Ziel-Layers eintragen."
-        )
+        raise RuntimeError("Die neue Layer-ID zeigt auf eine WebMap, nicht auf ein Layer-Item. Bitte die Item-ID des eigentlichen Ziel-Layers eintragen.")
 
     if target_info["type"] == "other":
-        raise RuntimeError(
-            f"Die neue Layer-ID konnte keinem unterstuetzten Typ zugeordnet werden. "
-            f"Item-Type: {getattr(new_item, 'type', None)}"
-        )
+        raise RuntimeError(f"Die neue Layer-ID konnte keinem unterstuetzten Typ zugeordnet werden. Item-Type: {getattr(new_item, 'type', None)}")
 
     if not target_info["url"] and target_info["type"] != "vectortile":
-        raise RuntimeError(
-            f"Fuer die neue Layer-ID konnte keine URL ermittelt werden. "
-            f"Item-Type: {getattr(new_item, 'type', None)}"
-        )
+        raise RuntimeError(f"Fuer die neue Layer-ID konnte keine URL ermittelt werden. Item-Type: {getattr(new_item, 'type', None)}")
 
     try:
-        webmaps = gis.content.search(
-            query=f'type:"Web Map" AND owner:{owner}',
-            max_items=5000
-        )
+        webmaps = gis.content.search(query=f'type:"Web Map" AND owner:{owner}', max_items=5000)
     except Exception as e:
         raise RuntimeError(f"WebMaps konnten nicht gesucht werden: {e}")
 
@@ -1834,10 +1261,8 @@ def run_layer_replacement(
 
     for wm in webmaps:
         try:
-            _msg(message_func, f"DEBUG vor get_data: {wm.title} ({wm.id})")
             try:
                 data = wm.get_data()
-                _msg(message_func, f"DEBUG nach get_data: {wm.title} ({wm.id})")
             except Exception as e:
                 _warn(warning_func, f"FEHLER in get_data bei {wm.title} ({wm.id}): {e}")
                 _add_runtime_issue(runtime_issues, f"get_data fehlgeschlagen: {wm.title} ({wm.id}) | {e}")
@@ -1850,47 +1275,23 @@ def run_layer_replacement(
 
             try:
                 original_data = _json_clone(data)
-                _msg(message_func, f"DEBUG nach json_clone: {wm.title} ({wm.id})")
             except Exception as e:
                 _warn(warning_func, f"FEHLER in json_clone bei {wm.title} ({wm.id}): {e}")
                 _add_runtime_issue(runtime_issues, f"json_clone fehlgeschlagen: {wm.title} ({wm.id}) | {e}")
                 continue
 
-            context = {
-                "has_group_conflict": False,
-                "group_layer_replaced": False,
-                "root_operational_layers": data.get("operationalLayers", []),
-                "tile_keep_path": None,
-            }
-
-            hits = _walk_and_replace(
-                data.get("operationalLayers", []),
-                old_layer_itemids,
-                old_item_titles,
-                target_info,
-                context,
-            )
-
+            context = {"has_group_conflict": False, "group_layer_replaced": False, "root_operational_layers": data.get("operationalLayers", []), "tile_keep_path": None}
+            hits = _walk_and_replace(data.get("operationalLayers", []), old_ids, old_item_titles, target_info, context)
             cleanup_removed = 0
 
             if context["has_group_conflict"]:
                 conflict_webmaps.append((wm.title, wm.id))
-                _warn(
-                    warning_func,
-                    f"GroupLayer-Konflikt erkannt -> WebMap bleibt unveraendert: {wm.title} ({wm.id})"
-                )
+                _warn(warning_func, f"GroupLayer-Konflikt erkannt -> WebMap bleibt unveraendert: {wm.title} ({wm.id})")
                 data = original_data
                 continue
 
             if target_info["type"] == "tile" and context.get("tile_keep_path"):
-                cleanup_removed = _dedupe_target_tile_layers(
-                    data.get("operationalLayers", []),
-                    target_item_id=target_info["itemId"],
-                    keep_path=context["tile_keep_path"],
-                    path="operationalLayers",
-                )
-                if cleanup_removed > 0:
-                    _msg(message_func, f"DEBUG entfernte konkurrierende Ziel-Layer fuer Tile: {cleanup_removed}")
+                cleanup_removed = _dedupe_target_tile_layers(data.get("operationalLayers", []), target_item_id=target_info["itemId"], keep_path=context["tile_keep_path"], path="operationalLayers")
 
             if not hits and cleanup_removed == 0:
                 continue
@@ -1905,15 +1306,12 @@ def run_layer_replacement(
                     _msg(message_func, f"  Titel-Filter: {h['old_item_title_filter']}")
                 _msg(message_func, f"  Titel: {h['before_title']} -> {h['after_title']}")
                 _msg(message_func, f"  URL:   {h['before_url']} -> {h['after_url']}")
-
                 if h.get("removed_before_replace", 0) > 0:
                     _msg(message_func, f"  vor dem Ersetzen entfernte ausgelagerte Unterlayer: {h['removed_before_replace']}")
-
                 if h["transferred_keys"] is not None:
                     _msg(message_func, f"  uebernommen: {', '.join(h['transferred_keys']) if h['transferred_keys'] else '-'}")
                 if h["dropped_keys"] is not None:
                     _msg(message_func, f"  verworfen: {', '.join(h['dropped_keys']) if h['dropped_keys'] else '-'}")
-
                 if DEBUG_DUMP_FINAL_BLOCKS and h.get("final_block") is not None:
                     _msg(message_func, "  Finaler Layerblock:")
                     _msg(message_func, json.dumps(h["final_block"], ensure_ascii=False, indent=2))
@@ -1925,10 +1323,7 @@ def run_layer_replacement(
                     _add_runtime_issue(runtime_issues, f"{wm.title} ({wm.id}) | {msg}")
 
                 if not final_ok:
-                    _warn(
-                        warning_func,
-                        f"Tile-Endvalidierung fehlgeschlagen -> WebMap bleibt unveraendert: {wm.title} ({wm.id})"
-                    )
+                    _warn(warning_func, f"Tile-Endvalidierung fehlgeschlagen -> WebMap bleibt unveraendert: {wm.title} ({wm.id})")
                     data = original_data
                     continue
 
@@ -1936,19 +1331,15 @@ def run_layer_replacement(
                 _msg(message_func, "DRY_RUN=True -> keine Speicherung.")
                 continue
 
-            _msg(message_func, f"DEBUG vor wm.update: {wm.title} ({wm.id})")
             try:
                 ok = wm.update(data=data)
-                _msg(message_func, f"DEBUG nach wm.update: {wm.title} ({wm.id}) | ok={ok}")
             except Exception as e:
                 _warn(warning_func, f"FEHLER in wm.update bei {wm.title} ({wm.id}): {e}")
                 _add_runtime_issue(runtime_issues, f"wm.update fehlgeschlagen: {wm.title} ({wm.id}) | {e}")
 
                 if USE_REST_UPDATE_FALLBACK:
-                    _msg(message_func, f"DEBUG REST-Fallback gestartet: {wm.title} ({wm.id})")
                     try:
                         ok = _update_webmap_via_rest(gis, wm, data)
-                        _msg(message_func, f"DEBUG REST-Fallback Ergebnis: {wm.title} ({wm.id}) | ok={ok}")
                     except Exception as rest_e:
                         _warn(warning_func, f"FEHLER im REST-Fallback bei {wm.title} ({wm.id}): {rest_e}")
                         _add_runtime_issue(runtime_issues, f"REST-Fallback fehlgeschlagen: {wm.title} ({wm.id}) | {rest_e}")
@@ -1966,9 +1357,4 @@ def run_layer_replacement(
             _warn(warning_func, f"Fehler in WebMap {wm.title} ({wm.id}): {e}")
             _add_runtime_issue(runtime_issues, f"Fehler bei der Verarbeitung einer WebMap: {wm.title} ({wm.id}) | {e}")
 
-    return {
-        "touched": touched,
-        "updated": updated,
-        "conflicts": conflict_webmaps,
-        "runtime_issues": runtime_issues,
-    }
+    return {"touched": touched, "updated": updated, "conflicts": conflict_webmaps, "runtime_issues": runtime_issues}
