@@ -12,7 +12,7 @@ class ReplaceWebMapLayersTool(object):
     def __init__(self):
         self.label = "Layer in WebMaps ersetzen"
         self.description = (
-            "Ersetzt in WebMaps veraltete Layer-Referenzen kontrolliert "
+            "Ersetzt in WebMaps veraltete Layer kntrolliert "
             "durch einen neuen Ziel-Layer."
         )
         self.canRunInBackground = False
