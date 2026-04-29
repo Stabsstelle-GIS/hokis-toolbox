@@ -10,7 +10,7 @@ class Toolbox(object):
 
 class ReplaceWebMapLayersTool(object):
     def __init__(self):
-        self.label = "Veraltete Layer-Referenzen in WebMaps ersetzen"
+        self.label = "Layer in WebMaps ersetzen"
         self.description = (
             "Ersetzt in WebMaps veraltete Layer-Referenzen kontrolliert "
             "durch einen neuen Ziel-Layer."
@@ -18,17 +18,16 @@ class ReplaceWebMapLayersTool(object):
         self.canRunInBackground = False
 
     def getParameterInfo(self):
-        param_old_ids = arcpy.Parameter(
-            displayName="Alte Layer-IDs",
-            name="old_layer_ids",
+        param_old_id = arcpy.Parameter(
+            displayName="Alte Layer-ID",
+            name="old_layer_id",
             datatype="GPString",
             parameterType="Required",
             direction="Input",
-            multiValue=True,
         )
 
         param_new_id = arcpy.Parameter(
-            displayName="Neue Layer-ID",
+            displayName="Neue Layer-ID",s
             name="new_layer_id",
             datatype="GPString",
             parameterType="Required",
@@ -52,7 +51,7 @@ class ReplaceWebMapLayersTool(object):
             direction="Output",
         )
 
-        return [param_old_ids, param_new_id, param_dry_run, param_summary]
+        return [param_old_id, param_new_id, param_dry_run, param_summary]
 
     def isLicensed(self):
         return True
@@ -63,30 +62,24 @@ class ReplaceWebMapLayersTool(object):
         return
 
     def updateMessages(self, parameters):
-        old_ids = parameters[0].values if parameters[0].values else []
+        old_id = parameters[0].valueAsText
         new_id = parameters[1].valueAsText
 
-        if not old_ids:
-            parameters[0].setErrorMessage("Mindestens eine alte Layer-ID ist erforderlich.")
-        else:
-            invalid_old = []
-            for old_id in old_ids:
-                if old_id and len(old_id.strip()) != 32:
-                    invalid_old.append(old_id)
-            if invalid_old:
-                parameters[0].setWarningMessage(
-                    "Mindestens eine alte Layer-ID hat nicht die erwartete Laenge von 32 Zeichen."
-                )
+        if not old_id or not old_id.strip():
+            parameters[0].setErrorMessage("Eine alte Layer-ID ist erforderlich.")
+        elif len(old_id.strip()) != 32:
+            parameters[0].setWarningMessage(
+                "Die alte Layer-ID hat nicht die erwartete Laenge von 32 Zeichen."
+            )
 
         if new_id:
             if len(new_id.strip()) != 32:
                 parameters[1].setWarningMessage(
                     "Die neue Layer-ID hat nicht die erwartete Laenge von 32 Zeichen."
                 )
-
-            if old_ids and new_id in old_ids:
+            elif old_id and new_id.strip() == old_id.strip():
                 parameters[1].setWarningMessage(
-                    "Die neue Layer-ID ist auch in der Liste der alten Layer-IDs enthalten."
+                    "Die neue Layer-ID ist identisch mit der alten Layer-ID."
                 )
 
         return
@@ -98,14 +91,13 @@ class ReplaceWebMapLayersTool(object):
             arcpy.AddError(f"Import von replace_webmap_layers.py fehlgeschlagen: {e}")
             raise
 
-        old_layer_ids = set([x.strip() for x in (parameters[0].values or []) if x and x.strip()])
+        old_layer_id = parameters[0].valueAsText.strip()
         new_layer_id = parameters[1].valueAsText.strip()
-
         dry_run = bool(parameters[2].value) if parameters[2].value is not None else False
 
         try:
             result = run_layer_replacement(
-                old_layer_itemids=old_layer_ids,
+                old_layer_itemid=old_layer_id,
                 new_layer_itemid=new_layer_id,
                 dry_run=dry_run,
                 message_func=arcpy.AddMessage,
