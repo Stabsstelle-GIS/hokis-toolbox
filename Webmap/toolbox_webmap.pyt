@@ -12,7 +12,7 @@ class ReplaceWebMapLayersTool(object):
     def __init__(self):
         self.label = "Layer in WebMaps ersetzen"
         self.description = (
-            "Ersetzt in WebMaps veraltete Layer kntrolliert "
+            "Ersetzt in WebMaps veraltete Layer kontrolliert "
             "durch einen neuen Ziel-Layer."
         )
         self.canRunInBackground = False
@@ -27,7 +27,7 @@ class ReplaceWebMapLayersTool(object):
         )
 
         param_new_id = arcpy.Parameter(
-            displayName="Neue Layer-ID",s
+            displayName="Neue Layer-ID",
             name="new_layer_id",
             datatype="GPString",
             parameterType="Required",
@@ -110,22 +110,6 @@ class ReplaceWebMapLayersTool(object):
                 f"Konflikt-WebMaps: {len(result['conflicts'])} | "
                 f"Laufzeit-Hinweise: {len(result['runtime_issues'])}"
             )
-
-            arcpy.AddMessage("")
-            arcpy.AddMessage("===== Abschluss =====")
-            arcpy.AddMessage(summary)
-
-            if result["conflicts"]:
-                arcpy.AddWarning("")
-                arcpy.AddWarning("WebMaps mit GroupLayer-Konflikt (unveraendert gelassen):")
-                for title, wm_id in result["conflicts"]:
-                    arcpy.AddWarning(f"- {title} ({wm_id})")
-
-            if result["runtime_issues"]:
-                arcpy.AddWarning("")
-                arcpy.AddWarning("Auffaelligkeiten / relevante Laufzeitprobleme:")
-                for msg in result["runtime_issues"]:
-                    arcpy.AddWarning(f"- {msg}")
 
             parameters[3].value = summary
 
